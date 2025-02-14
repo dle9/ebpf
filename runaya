@@ -1,2 +1,2 @@
 RUST_LOG=info cargo run --config 'target."cfg(all())".runner="sudo -E"' -- \
-  --iface wlp2s0
+  --iface wlp1s0
