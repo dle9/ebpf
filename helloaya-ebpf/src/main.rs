@@ -22,9 +22,9 @@ use aya_log_ebpf::info;
 use core::mem;
 use network_types::{
     eth::EthHdr,
-    ip::{IpProto, Ipv4Hdr},
-    tcp::TcpHdr,
-    udp::UdpHdr,
+    ip::Ipv4Hdr, // ip::{IpProto, Ipv4Hdr},
+                 // tcp::TcpHdr,
+                 // udp::UdpHdr,
 };
 
 #[map]
@@ -53,15 +53,15 @@ fn ptr_at<T>(ctx: &XdpContext, offset: usize) -> Result<*const T, ()> {
 
 // the xdp program entrypoint
 #[xdp]
-pub fn helloaya(ctx: XdpContext) -> u32 {
-    match try_helloaya(ctx) {
+pub fn firewall(ctx: XdpContext) -> u32 {
+    match try_firewall(ctx) {
         Ok(ret) => ret,
         Err(_) => xdp_action::XDP_ABORTED,
     }
 }
 
-fn try_helloaya(ctx: XdpContext) -> Result<u32, ()> {
-    let (source_ip, source_port) = extract_source(&ctx)?;
+fn try_firewall(ctx: XdpContext) -> Result<u32, ()> {
+    let source_ip = extract_source(&ctx)?;
 
     let action = if block_ip(source_ip) {
         xdp_action::XDP_DROP
@@ -69,33 +69,37 @@ fn try_helloaya(ctx: XdpContext) -> Result<u32, ()> {
         xdp_action::XDP_PASS
     };
 
-    info!(&ctx, "{}, {:i}:{}", action, source_ip, source_port);
+    if action == 1 {
+        info!(&ctx, "dropped {:i}", source_ip);
+    } else {
+        info!(&ctx, "passed {:i}", source_ip);
+    }
 
-    Ok(xdp_action::XDP_PASS)
+    Ok(action)
 }
 
 fn block_ip(address: u32) -> bool {
     unsafe { BLOCKLIST.get(&address).is_some() }
 }
 
-fn extract_source(ctx: &XdpContext) -> Result<(u32, u16), ()> {
+fn extract_source(ctx: &XdpContext) -> Result<u32, ()> {
     // pass the offset, EthHdr, to skip EthHdr and go to IP hdr
     let ipv4hdr: *const Ipv4Hdr = ptr_at(ctx, EthHdr::LEN)?;
 
     // from big endian to target endian
     let source_ip = u32::from_be(unsafe { (*ipv4hdr).src_addr });
 
-    let source_port = match unsafe { (*ipv4hdr).proto } {
-        IpProto::Tcp => {
-            let tcphdr: *const TcpHdr = ptr_at(ctx, EthHdr::LEN + Ipv4Hdr::LEN)?;
-            u16::from_be(unsafe { (*tcphdr).source })
-        }
-        IpProto::Udp => {
-            let udphdr: *const UdpHdr = ptr_at(ctx, EthHdr::LEN + Ipv4Hdr::LEN)?;
-            u16::from_be(unsafe { (*udphdr).source })
-        }
-        _ => return Err(()),
-    };
+    // let source_port = match unsafe { (*ipv4hdr).proto } {
+    //     IpProto::Tcp => {
+    //         let tcphdr: *const TcpHdr = ptr_at(ctx, EthHdr::LEN + Ipv4Hdr::LEN)?;
+    //         u16::from_be(unsafe { (*tcphdr).source })
+    //     }
+    //     IpProto::Udp => {
+    //         let udphdr: *const UdpHdr = ptr_at(ctx, EthHdr::LEN + Ipv4Hdr::LEN)?;
+    //         u16::from_be(unsafe { (*udphdr).source })
+    //     }
+    //     _ => return Err(()),
+    // };
 
-    Ok((source_ip, source_port))
+    Ok(source_ip)
 }
